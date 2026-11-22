@@ -36,7 +36,29 @@ save_conf() {
 
 # ---------- helpers ----------
 strip_ansi() { sed -u 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\r//g'; }   # -u: unbuffered, for tail -f
-count_log()  { local n; n=$(grep -c -i -E "$1" "$LOGFILE" 2>/dev/null) || true; echo "${n:-0}"; }
+# nekominer prints a stats table every few seconds:
+#   | GPU | Bus ID | Name | Util | Temp | Fan | Core | Mem | mV | Hashrate | Accepted | Rejected |
+# These read the GPU rows of the most recent table.
+miner_table() {   # mode "totals" -> "accepted rejected hashrate" ; mode "rows" -> one line per GPU
+  tail -n 300 "$LOGFILE" 2>/dev/null | strip_ansi | awk -F'|' -v mode="$1" '
+    function t(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    /Accepted/ { n = a = r = h = 0; unit = ""; next }
+    /^\|[[:space:]]*[0-9]+[[:space:]]*\|/ {
+      split(t($(NF-3)), hr, " "); h += hr[1]; if (unit == "") unit = hr[2]
+      a += $(NF-2); r += $(NF-1)
+      row[++n] = sprintf("GPU%-2s %-20s %12s  %4s  util %4s  acc %s rej %s",
+                         t($2), t($4), t($(NF-3)), t($6), t($5), t($(NF-2)), t($(NF-1)))
+    }
+    END {
+      if (mode == "rows") { for (i = 1; i <= n; i++) print row[i] }
+      else printf "%d %d %s\n", a, r, (n ? sprintf("%.2f %s", h, unit) : "n/a")
+    }'
+}
+log_events() {    # recent log lines minus the stats tables and their header line
+  tail -n 400 "$LOGFILE" 2>/dev/null | strip_ansi \
+    | grep -v -E '^[+|]|^[0-9:]+ nekominer \|' | tail -n "$1" | cut -c1-$(( BOX_W - 8 )) | grep . \
+    || echo "  (none)"
+}
 size_h()     { [ -s "$1" ] && du -h "$1" | cut -f1 || echo empty; }
 
 pretty_time() {
@@ -183,21 +205,24 @@ do_status() {
     local e; e=$(last_error); [ -n "$e" ] && s+="Last error    $e\n"
   fi
   s+="Algo / pool   $ALGO / $POOLS\nWorker        $WALLET\n"
-  s+="Shares        accepted $(count_log 'accepted|share.*(ok|accept)') | rejected $(count_log 'rejected|share.*(reject|error)')\n"
+  local acc rej rate; read -r acc rej rate <<< "$(miner_table totals)"
+  s+="Hashrate      $rate\nShares        accepted $acc | rejected $rej\n"
   s+="Log           $LOGFILE ($( [ -f "$LOGFILE" ] && size_h "$LOGFILE" || echo none))\n"
-  s+="$(printf '%.0s-' {1..45})\n$( [ -f "$LOGFILE" ] && tail -n 6 "$LOGFILE" | strip_ansi || echo 'no log yet')"
-  box_fit; whiptail --title "$APP_TITLE — STATUS" --backtitle "$DIR" --msgbox "$s" "$BOX_H" "$BOX_W"
+  box_fit
+  s+="$(printf '%.0s-' {1..45})\n$(miner_table rows)\n\nRecent events:\n$(log_events 5)"
+  whiptail --title "$APP_TITLE — STATUS" --backtitle "$DIR" --msgbox "$s" "$BOX_H" "$BOX_W"
 }
 
 do_stats() {
   [ -f "$LOGFILE" ] || { err "No log file yet."; return; }
-  local rate age s
-  rate=$(tail -n 400 "$LOGFILE" | strip_ansi | grep -o -i -E '[0-9.]+[[:space:]]*[kmg]?h/s' | tail -n 1)
+  local acc rej rate age s
+  read -r acc rej rate <<< "$(miner_table totals)"
   age=$(( $(date +%s) - $(stat -c %Y "$LOGFILE") ))
-  s="Accepted:      $(count_log 'accepted|share.*(ok|accept)')\nRejected:      $(count_log 'rejected|share.*(reject|error)')\n"
-  s+="Last hashrate: ${rate:-n/a}\nLast log write: $(pretty_time "$age") ago\nLog size:      $(size_h "$LOGFILE")\n"
-  s+="$(printf '%.0s-' {1..45})\n$(tail -n 10 "$LOGFILE" | strip_ansi)"
-  box_fit; whiptail --title "$APP_TITLE — STATS" --backtitle "$DIR" --msgbox "$s" "$BOX_H" "$BOX_W"
+  s="Hashrate:       $rate (all GPUs)\nAccepted:       $acc\nRejected:       $rej\n"
+  s+="Last log write: $(pretty_time "$age") ago\nLog size:       $(size_h "$LOGFILE")\n"
+  box_fit
+  s+="$(printf '%.0s-' {1..45})\n$(miner_table rows)\n\nRecent events:\n$(log_events 8)"
+  whiptail --title "$APP_TITLE — STATS" --backtitle "$DIR" --msgbox "$s" "$BOX_H" "$BOX_W"
 }
 
 do_live_log() {
@@ -297,6 +322,8 @@ cli_status() {
   if [ -n "$(nvml_present)" ]; then printf '\033[0;32mpreflight OK\033[0m  GPU: %s\n' "$(gpu_names)"
   else printf '\033[1;31mPREFLIGHT FAIL\033[0m no libnvidia-ml.so.1 - GPU: %s (nekominer is CUDA-only)\n' "$(gpu_names)"; fi
   printf 'pool   %s\nalgo   %s\nworker %s\nlog    %s\n' "$POOLS" "$ALGO" "$WALLET" "$LOGFILE"
+  local acc rej rate; read -r acc rej rate <<< "$(miner_table totals)"
+  printf 'hash   %s   shares accepted %s / rejected %s\n' "$rate" "$acc" "$rej"
   [ -f "$LOGFILE" ] && { echo "--- tail ---"; tail -n "${1:-8}" "$LOGFILE" | strip_ansi; }
   return 0
 }

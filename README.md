@@ -32,8 +32,9 @@ its SHA-256, and starts mining once the NVIDIA checks pass. Leave out
 | **Headless** over SSH or cron (`--status`, `--help`) <br> ![Headless CLI](docs/screenshots/09-headless-cli.png) | **Preflight** on a machine with no NVIDIA GPU <br> ![Preflight fail](docs/screenshots/10-preflight-fail.png) |
 
 <sub>Screenshots 1–9 are from a demo run. The real script drove the menus, but a
-stub process stood in for nekominer, so the GPU, hashrate, and share lines are
-sample data. Screenshot 10 is real output from a laptop without an NVIDIA GPU.</sub>
+stub process stood in for nekominer. The stub prints nekominer's stats table in its
+real format, filled with the numbers from a real RTX 5090 run (1.81 H/s). Screenshot
+10 is real output from a laptop without an NVIDIA GPU.</sub>
 
 ## Requirements
 
