@@ -16,7 +16,7 @@ URL="https://github.com/nr800/nekominer/releases/download/$VERSION/nekominer"
 SHA="4d2a59b32bea2ea867992ab3d81c7e746a2c7f2cb273d311033d3acf7819088f"
 
 # ---------- defaults (overridden by miner.conf) ----------
-POOLS="btxv4.ninjaraider.com:44950,btx-pool.com:3334"   # ninjaraider = 0% dev fee
+POOLS="btx.ninjaraider.com:44950,btx-pool.com:3334"   # ninjaraider = 0% dev fee
 WALLET="${BTX_WALLET:-}"   # btx1...ADDRESS.WORKER - set via Settings, miner.conf, or BTX_WALLET
 ALGO="btxv4"
 FAILBACK="120"
