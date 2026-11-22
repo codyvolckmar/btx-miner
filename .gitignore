@@ -1,0 +1,5 @@
+miner.conf
+miner.log
+supervisor.*
+nekominer
+.nekominer.dl
