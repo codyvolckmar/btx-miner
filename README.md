@@ -17,23 +17,23 @@ its SHA-256, and starts mining once the NVIDIA checks pass. Leave out
 `BTX_WALLET=...` to set the wallet later in the menu (`sudo btx-miner`).
 [Read install.sh](install.sh) before you pipe it to a shell.
 
-```
-=== BTX MINER  v0.21.0 ===
-btxv4.ninjaraider.com:44950,btx-pool.com:3334 | /opt/btx
-State: RUNNING
+<p align="center">
+  <img src="docs/screenshots/01-main-menu.png" alt="btx-miner main menu" width="49%">
+  <img src="docs/screenshots/02-status.png" alt="Status dashboard" width="49%">
+</p>
 
-  1) Status dashboard
-  2) Start mining
-  3) Stop mining
-  4) Restart
-  5) Live log (follow)
-  6) View log
-  7) Share / hashrate summary
-  8) Settings (pools, wallet, algo)
-  9) Install / update miner (verify sha256)
-  A) Advanced / uninstall
-  0) Quit  (or q)
-```
+## Screenshots
+
+| | |
+|---|---|
+| **Share / hashrate summary** (`7`) <br> ![Stats](docs/screenshots/03-stats.png) | **Live log**, Ctrl+C returns to the menu (`5`) <br> ![Live log](docs/screenshots/06-live-log.png) |
+| **Settings**: pools, wallet, algo, failback, extra flags (`8`) <br> ![Settings](docs/screenshots/04-settings.png) | **Editing the pool list** (primary first) <br> ![Pools](docs/screenshots/05-settings-pools.png) |
+| **Install / update** with a pinned SHA-256 (`9`) <br> ![Install](docs/screenshots/07-install.png) | **Advanced**: supervisor output, config, kill, uninstall (`A`) <br> ![Advanced](docs/screenshots/08-advanced.png) |
+| **Headless** over SSH or cron (`--status`, `--help`) <br> ![Headless CLI](docs/screenshots/09-headless-cli.png) | **Preflight** on a machine with no NVIDIA GPU <br> ![Preflight fail](docs/screenshots/10-preflight-fail.png) |
+
+<sub>Screenshots 1–9 are from a demo run. The real script drove the menus, but a
+stub process stood in for nekominer, so the GPU, hashrate, and share lines are
+sample data. Screenshot 10 is real output from a laptop without an NVIDIA GPU.</sub>
 
 ## Requirements
 

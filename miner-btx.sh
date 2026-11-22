@@ -35,7 +35,7 @@ save_conf() {
 [ -f "$CONF" ] || save_conf
 
 # ---------- helpers ----------
-strip_ansi() { sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' | tr -d '\r'; }
+strip_ansi() { sed -u 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\r//g'; }   # -u: unbuffered, for tail -f
 count_log()  { local n; n=$(grep -c -i -E "$1" "$LOGFILE" 2>/dev/null) || true; echo "${n:-0}"; }
 size_h()     { [ -s "$1" ] && du -h "$1" | cut -f1 || echo empty; }
 
@@ -204,7 +204,9 @@ do_live_log() {
   [ -f "$LOGFILE" ] || { err "No log file yet at $LOGFILE"; return; }
   clear
   printf '\033[1;36m  LIVE LOG — %s   (Ctrl+C to return)\033[0m\n\n' "$LOGFILE"
-  ( trap 'exit 0' INT; tail -n 40 -f "$LOGFILE" | strip_ansi )
+  trap ':' INT   # Ctrl+C stops tail only; the menu's quit-on-INT trap is restored below
+  tail -n 40 -f "$LOGFILE" | strip_ansi
+  trap 'clear; exit 0' INT TERM
   printf '\n\033[0;90m  press Enter...\033[0m'; read -r _
 }
 
