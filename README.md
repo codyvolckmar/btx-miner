@@ -6,6 +6,17 @@ A single-file Bash control panel for mining **BTX** (`btxv4`) on NVIDIA GPUs wit
 It installs and verifies the miner, keeps it running, and gives you a status
 dashboard. Use the keyboard menu, or run it headless over SSH or cron.
 
+## One-line install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/codyvolckmar/btx-miner/main/install.sh | sudo BTX_WALLET=btx1YOURADDRESS.rig1 bash
+```
+
+This installs the control panel as `btx-miner`. It downloads nekominer, verifies
+its SHA-256, and starts mining once the NVIDIA checks pass. Leave out
+`BTX_WALLET=...` to set the wallet later in the menu (`sudo btx-miner`).
+[Read install.sh](install.sh) before you pipe it to a shell.
+
 ```
 === BTX MINER  v0.21.0 ===
 btxv4.ninjaraider.com:44950,btx-pool.com:3334 | /opt/btx
@@ -31,7 +42,7 @@ State: RUNNING
 - NVIDIA driver 525+ (`nvidia-smi` and `libnvidia-ml.so.1` present)
 - `bash`, `curl`, `sha256sum`, and `whiptail` (installed for you through `apt` if missing)
 
-## Quick start
+## Manual install
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/codyvolckmar/btx-miner/main/miner-btx.sh
