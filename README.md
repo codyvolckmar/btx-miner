@@ -94,14 +94,14 @@ Everything lives in one directory (`/opt/btx` by default):
 checksum (`SHA`). It downloads the binary to a temp file and checks the hash. It
 installs only if the hash matches. A tampered or corrupted download is rejected.
 
-**Config.** `miner.conf` holds `POOLS`, `WALLET`, `ALGO`, `FAILBACK`, and `EXTRA`.
+**Config.** `miner.conf` holds `POOLS`, `WALLET`, `ALGO`, `FAILBACK`, `EXTRA`, and `DEVICES`.
 The Settings menu writes it with shell-safe quoting. You can also edit it by hand.
 
 **Supervisor.** Start writes a small `supervisor.sh` and launches it detached
 (`setsid nohup`), so it survives logout. The supervisor loops forever:
 
 1. Re-read `miner.conf`
-2. Run `nekominer -a $ALGO -o $POOLS -u $WALLET --failback-interval $FAILBACK $EXTRA`
+2. Run `nekominer -a $ALGO -o $POOLS -u $WALLET [-d $DEVICES] --failback-interval $FAILBACK $EXTRA`
 3. If the miner exits, log the exit code, wait 10 s, and go back to step 1
 
 Because the config is re-read on every loop, settings changes apply on the next
@@ -122,12 +122,28 @@ to 5 s. It then sends SIGKILL and sweeps any leftover `nekominer` processes.
   and the dashboard shows the last error from the log.
 - `STOPPED`
 
-It also shows uptime, CPU load, and accepted and rejected share counts from the
-log. The stats view also shows the latest hashrate.
+It also shows uptime, CPU load, total hashrate, and accepted and rejected shares.
+These come from nekominer's own stats table, added up across all GPUs, with one
+line per card.
 
 **Preflight.** Before starting, it checks for the binary, NVML
 (`libnvidia-ml.so.1`), `nvidia-smi`, and a `btx1…` wallet. If any are missing, it
 tells you what's wrong instead of crash-looping.
+
+## Multi-GPU pods
+
+One nekominer process mines on **every GPU it can see**, so a 2–8 GPU pod needs no
+extra setup. Run the same one-line install and all cards start hashing. The total
+hashrate and shares go to a single worker name.
+
+- **See every card:** the dashboard, the stats view, and `--status` show one line
+  per GPU and how many are hashing, for example `3/4 GPUs hashing`. A card stuck
+  at 0 H/s is marked `<-- NOT HASHING`.
+- **Mine on some cards only:** go to **Settings → GPUs** and enter indices like
+  `0,1,3`, then restart. Leave it blank to use all cards. This sets `DEVICES` in
+  `miner.conf` and passes `-d` to nekominer.
+- **Per-card overclocks:** nekominer takes comma-separated values, one per card,
+  for example `--pl 150,120` (see below).
 
 ## Overclocking
 

@@ -21,6 +21,7 @@ WALLET="${BTX_WALLET:-}"   # btx1...ADDRESS.WORKER - set via Settings, miner.con
 ALGO="btxv4"
 FAILBACK="120"
 EXTRA=""
+DEVICES=""   # GPUs to mine on, e.g. "0,1,3" - blank = all GPUs
 
 mkdir -p "$DIR" 2>/dev/null || { echo "Cannot create $DIR (try running as root or set BTX_MINER_DIR)" >&2; exit 1; }
 # shellcheck disable=SC1090
@@ -28,8 +29,8 @@ mkdir -p "$DIR" 2>/dev/null || { echo "Cannot create $DIR (try running as root o
 save_conf() {
   {
     echo "# nekominer config — edit via the menu, or directly here"
-    printf 'POOLS=%q\nWALLET=%q\nALGO=%q\nFAILBACK=%q\nEXTRA=%q\n' \
-      "$POOLS" "$WALLET" "$ALGO" "$FAILBACK" "$EXTRA"
+    printf 'POOLS=%q\nWALLET=%q\nALGO=%q\nFAILBACK=%q\nEXTRA=%q\nDEVICES=%q\n' \
+      "$POOLS" "$WALLET" "$ALGO" "$FAILBACK" "$EXTRA" "$DEVICES"
   } > "$CONF"
 }
 [ -f "$CONF" ] || save_conf
@@ -39,19 +40,20 @@ strip_ansi() { sed -u 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\r//g'; }   # -u: unbuffere
 # nekominer prints a stats table every few seconds:
 #   | GPU | Bus ID | Name | Util | Temp | Fan | Core | Mem | mV | Hashrate | Accepted | Rejected |
 # These read the GPU rows of the most recent table.
-miner_table() {   # mode "totals" -> "accepted rejected hashrate" ; mode "rows" -> one line per GPU
+miner_table() {   # "totals" -> "accepted rejected hashing/gpus hashrate" ; "rows" -> one line per GPU
   tail -n 300 "$LOGFILE" 2>/dev/null | strip_ansi | awk -F'|' -v mode="$1" '
     function t(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
-    /Accepted/ { n = a = r = h = 0; unit = ""; next }
+    /Accepted/ { n = a = r = h = live = 0; unit = ""; next }
     /^\|[[:space:]]*[0-9]+[[:space:]]*\|/ {
-      split(t($(NF-3)), hr, " "); h += hr[1]; if (unit == "") unit = hr[2]
+      split(t($(NF-3)), hr, " "); h += hr[1]; if (unit == "") unit = hr[2]; if (hr[1] + 0 > 0) live++
       a += $(NF-2); r += $(NF-1)
       row[++n] = sprintf("GPU%-2s %-20s %12s  %4s  util %4s  acc %s rej %s",
-                         t($2), t($4), t($(NF-3)), t($6), t($5), t($(NF-2)), t($(NF-1)))
+                         t($2), t($4), t($(NF-3)), t($6), t($5), t($(NF-2)), t($(NF-1))) \
+               (hr[1] + 0 > 0 ? "" : "  <-- NOT HASHING")
     }
     END {
       if (mode == "rows") { for (i = 1; i <= n; i++) print row[i] }
-      else printf "%d %d %s\n", a, r, (n ? sprintf("%.2f %s", h, unit) : "n/a")
+      else printf "%d %d %d/%d %s\n", a, r, live, n, (n ? sprintf("%.2f %s", h, unit) : "n/a")
     }'
 }
 log_events() {    # recent log lines minus the stats tables and their header line
@@ -83,7 +85,10 @@ box_fit() {   # fit dialogs to the terminal so whiptail never says "box too smal
 }
 msg()   { box_fit; whiptail --title "$APP_TITLE" --backtitle "$DIR" --msgbox "$1" "$BOX_H" "$BOX_W"; }
 err()   { box_fit; whiptail --title "$APP_TITLE — ERROR" --backtitle "$DIR" --msgbox "$1" "$BOX_H" "$BOX_W"; }
-ask()   { whiptail --title "$APP_TITLE" --backtitle "Settings" --inputbox "$1" 12 74 "$2" 3>&1 1>&2 2>&3; }
+ask()   {   # inputbox sized to its prompt (the GPU picker lists up to 8 cards)
+  local h; h=$(( $(printf '%b\n' "$1" | wc -l) + 8 )); box_fit; (( h > BOX_H )) && h=$BOX_H
+  whiptail --title "$APP_TITLE" --backtitle "Settings" --inputbox "$1" "$h" 74 "$2" 3>&1 1>&2 2>&3
+}
 yesno() { whiptail --title "$APP_TITLE" --backtitle "$DIR" --yesno "$1" 14 72; }
 
 # ---------- environment preflight ----------
@@ -97,6 +102,8 @@ gpu_names() {
     echo "${g:-none detected}"
   fi
 }
+gpu_count() { nvidia-smi -L 2>/dev/null | grep -c '^GPU' || true; }
+gpu_line()  { echo "$(gpu_count) detected, mining on: ${DEVICES:-all}"; }
 # preflight [quiet]: returns 0 if OK; otherwise prints/dialogs the problems and returns 1
 preflight() {
   local problems=()
@@ -131,7 +138,7 @@ write_supervisor() {
 while true; do
   . "$CONF"
   # EXTRA is intentionally word-split into separate flags
-  "$BIN" -a "$ALGO" -o "$POOLS" -u "$WALLET" --failback-interval "$FAILBACK" $EXTRA >> "$LOGFILE" 2>&1
+  "$BIN" -a "$ALGO" -o "$POOLS" -u "$WALLET" ${DEVICES:+-d "$DEVICES"} --failback-interval "$FAILBACK" $EXTRA >> "$LOGFILE" 2>&1
   rc=$?   # capture before $(date) below resets $?
   echo "[$(date '+%F %T')] supervisor: miner exited rc=$rc - restarting in 10s" >> "$LOGFILE"
   sleep 10
@@ -204,9 +211,9 @@ do_status() {
     else s+="NVIDIA        NOT present - GPU: $(gpu_names)\n"; fi
     local e; e=$(last_error); [ -n "$e" ] && s+="Last error    $e\n"
   fi
-  s+="Algo / pool   $ALGO / $POOLS\nWorker        $WALLET\n"
-  local acc rej rate; read -r acc rej rate <<< "$(miner_table totals)"
-  s+="Hashrate      $rate\nShares        accepted $acc | rejected $rej\n"
+  s+="Algo / pool   $ALGO / $POOLS\nWorker        $WALLET\nGPUs          $(gpu_line)\n"
+  local acc rej live rate; read -r acc rej live rate <<< "$(miner_table totals)"
+  s+="Hashrate      $rate ($live GPUs hashing)\nShares        accepted $acc | rejected $rej\n"
   s+="Log           $LOGFILE ($( [ -f "$LOGFILE" ] && size_h "$LOGFILE" || echo none))\n"
   box_fit
   s+="$(printf '%.0s-' {1..45})\n$(miner_table rows)\n\nRecent events:\n$(log_events 5)"
@@ -215,10 +222,10 @@ do_status() {
 
 do_stats() {
   [ -f "$LOGFILE" ] || { err "No log file yet."; return; }
-  local acc rej rate age s
-  read -r acc rej rate <<< "$(miner_table totals)"
+  local acc rej live rate age s
+  read -r acc rej live rate <<< "$(miner_table totals)"
   age=$(( $(date +%s) - $(stat -c %Y "$LOGFILE") ))
-  s="Hashrate:       $rate (all GPUs)\nAccepted:       $acc\nRejected:       $rej\n"
+  s="Hashrate:       $rate ($live GPUs hashing)\nAccepted:       $acc\nRejected:       $rej\n"
   s+="Last log write: $(pretty_time "$age") ago\nLog size:       $(size_h "$LOGFILE")\n"
   box_fit
   s+="$(printf '%.0s-' {1..45})\n$(miner_table rows)\n\nRecent events:\n$(log_events 8)"
@@ -266,13 +273,14 @@ do_settings() {
   local c v
   while true; do
     box_fit
-    c=$(whiptail --title "$APP_TITLE — SETTINGS" --backtitle "$DIR" --menu "Changes apply on next (re)start." "$BOX_H" "$BOX_W" 7 \
+    c=$(whiptail --title "$APP_TITLE — SETTINGS" --backtitle "$DIR" --menu "Changes apply on next (re)start." "$BOX_H" "$BOX_W" 8 \
       1 "Pools         : $POOLS" \
       2 "Wallet/worker : $WALLET" \
       3 "Algorithm     : $ALGO" \
       4 "Failback (s)  : $FAILBACK" \
       5 "Extra args    : ${EXTRA:--}" \
-      6 "Truncate log file" \
+      6 "GPUs          : ${DEVICES:-all} ($(gpu_count) detected)" \
+      7 "Truncate log file" \
       0 "Back" 3>&1 1>&2 2>&3) || return
     case "$c" in
       1) v=$(ask "Pool list (comma-separated host:port, first = primary):" "$POOLS") && POOLS=$v ;;
@@ -280,7 +288,9 @@ do_settings() {
       3) v=$(ask "Algorithm:" "$ALGO") && ALGO=$v ;;
       4) v=$(ask "Failback interval in seconds:" "$FAILBACK") && FAILBACK=$v ;;
       5) v=$(ask "Extra miner flags (blank for none):" "$EXTRA") && EXTRA=$v ;;
-      6) [ -f "$LOGFILE" ] && : > "$LOGFILE" && msg "Log truncated." ;;
+      6) v=$(ask "GPU indices to mine on, comma-separated (e.g. 0,1,3). Blank = all.\n\n$(nvidia-smi -L 2>/dev/null | cut -c1-60)" "$DEVICES") || continue
+         if [[ -z "$v" || "$v" =~ ^[0-9]+(,[0-9]+)*$ ]]; then DEVICES=$v; else err "Use GPU numbers like 0,1,3 (or blank for all)."; continue; fi ;;
+      7) [ -f "$LOGFILE" ] && : > "$LOGFILE" && msg "Log truncated." ;;
       0|"") return ;;
     esac
     save_conf
@@ -322,8 +332,10 @@ cli_status() {
   if [ -n "$(nvml_present)" ]; then printf '\033[0;32mpreflight OK\033[0m  GPU: %s\n' "$(gpu_names)"
   else printf '\033[1;31mPREFLIGHT FAIL\033[0m no libnvidia-ml.so.1 - GPU: %s (nekominer is CUDA-only)\n' "$(gpu_names)"; fi
   printf 'pool   %s\nalgo   %s\nworker %s\nlog    %s\n' "$POOLS" "$ALGO" "$WALLET" "$LOGFILE"
-  local acc rej rate; read -r acc rej rate <<< "$(miner_table totals)"
-  printf 'hash   %s   shares accepted %s / rejected %s\n' "$rate" "$acc" "$rej"
+  local acc rej live rate; read -r acc rej live rate <<< "$(miner_table totals)"
+  printf 'gpus   %s\n' "$(gpu_line)"
+  printf 'hash   %s (%s GPUs hashing)   shares accepted %s / rejected %s\n' "$rate" "$live" "$acc" "$rej"
+  miner_table rows | sed 's/^/       /'
   [ -f "$LOGFILE" ] && { echo "--- tail ---"; tail -n "${1:-8}" "$LOGFILE" | strip_ansi; }
   return 0
 }
