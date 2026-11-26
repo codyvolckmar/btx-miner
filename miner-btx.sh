@@ -96,7 +96,9 @@ yesno() { whiptail --title "$APP_TITLE" --backtitle "$DIR" --yesno "$1" 14 72; }
 nvml_present() { ls /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1 /usr/lib64/libnvidia-ml.so.1 /usr/lib/libnvidia-ml.so.1 2>/dev/null | head -n1; }
 gpu_names() {
   if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
-    nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | paste -sd', ' -
+    # "8x NVIDIA GeForce RTX 3090" (mixed rigs: "4x ..., 2x ...")
+    nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | sort | uniq -c \
+      | awk '{ c = $1; $1 = ""; sub(/^ /, ""); printf "%s%dx %s", (NR > 1 ? ", " : ""), c, $0 } END { print "" }'
   else
     local g; g=$(lspci 2>/dev/null | grep -i -E 'vga|3d controller' | sed 's/.*: //' | paste -sd';' -)
     echo "${g:-none detected}"
